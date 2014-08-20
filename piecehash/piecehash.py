@@ -22,8 +22,8 @@
 # Why?
 #===================================================================================================
 # Based on a problem a forensic examiner friend of mine has, I had the thought of calculating and
-# storing not one, but a lot of MD5/SHA-1/etc hashes of a file, calculating a full hash of the file
-# and a lot of 1 MiB sized hashes.
+# storing not one, but a lot of MD5/SHA-1/etc hashes of a file, calculating a hash for the whole
+# file and also one every 1 MiB of data.
 # The idea was expanded, and arbitrarily sized segments considered. Also a file format defined to
 # store in a simple, storage-efficient, carving-friendly binary format.
 #===================================================================================================
@@ -59,6 +59,7 @@
 #===================================================================================================
 # Version 0.4:
 #   * Hash mode works on arbitrary sizes and multiple files
+#   * Better error handling when opening PHash files.
 # Version 0.5:
 #   * Compare mode works
 # Version 0.6:
@@ -83,12 +84,22 @@ KILO = 1024
 MEGA = 1024 * KILO
 GIGA = 1024 * MEGA
 
-# ... and some real constants
+# ... and some real constants. Lets start with some file format constants
 C_APPNAMELEN = 31
+C_FORMATHEADER = "PHASH\x00"
+C_FORMATFOOTER = "PHEND\x00"
+C_APPNAME = "P-Hash Python 0.3"
+C_HEADERLEN = 48
 C_READSIZE = 1 * MEGA
+C_FOOTER_WILDCARD = 'PHEN'
 C_SEGIDS = [
     "SEG\x10",
+    C_FOOTER_WILDCARD,     # not really a segment, but a hack to simplify PHashFile.Load
     ]
+C_SEGIDLEN = 4
+C_FLAGS = {
+    'origin': 0b00000001,
+}
 
 HashList = [
     hashlib.md5,
@@ -117,7 +128,8 @@ HashTypes = {
 #   * Magic Number (6 bytes)        PHASH\x00
 #   * Hash algorithm (1 byte)       unsigned short, index of HashList
 #   * Segment size (8 bytes)        unsigned long, size in bytes
-#   * Hash origin (1 byte)          unsigned short, tells if a PHash file comes from a PHash program
+#   * Flags:
+#      * Hash origin (1 byte)       unsigned short, tells if a PHash file comes from a PHash program
 #                                   or if it was made through conversion from md5deep. Converted
 #                                   files don't have a fullhash at the end.
 #                                   0 == converted, 1 == PHash Complete
@@ -156,13 +168,13 @@ class PHashFile(object):
         # First we take care of the parameters...
         self.path = path
         # ...and now of some constants
-        self.header_template = "PHASH\x00%s%s%s%s"
-        self.footer = "PHEND\x00"
+        self.header_template = C_FORMATHEADER + "%s%s%s%s"
+        self.footer = C_FORMATFOOTER
         self.hashtype = hashtype
         self.hash = HashList[hashtype]
         self.segsize = segsize
-        self.origin = 1
-        self.appname = "P-Hash Python 0.2"
+        self.flags = C_FLAGS['origin']
+        self.appname = C_APPNAME
         self.files = []
     
     def AddFile(self, path):
@@ -173,36 +185,104 @@ class PHashFile(object):
         self.files.append(fe)
         return True
     
+    def GetFiles(self):
+        return self.files
+    
     def Save(self):
         h_hashtype = struct.pack("<B", self.hashtype)
         h_segsize = struct.pack("<Q", self.segsize)
-        h_origin = struct.pack("<B", self.origin)
+        h_flags = struct.pack("<B", self.flags)
         h_appname = (self.appname + "\x00" * (C_APPNAMELEN - len(self.appname)))[:C_APPNAMELEN] + "\x00"
-        header = self.header_template % (h_hashtype, h_segsize, h_origin, h_appname)
+        header = self.header_template % (h_hashtype, h_segsize, h_flags, h_appname)
         footer = self.footer
         fd = open(self.path, "wb")
         fd.write(header)
         segid = C_SEGIDS[0]
         for f in self.files:
             data = f.GetPath() + "\x00"
-            data += "".join(f.GetHashes())
-            crc = struct.pack("<l", zlib.crc32(data))
+            data += "".join(f.CalculateHashes())
+            crc = struct.pack("<i", zlib.crc32(data))
             fd.write(segid)
             fd.write(struct.pack("<Q", len(data)))
             fd.write(data)
             fd.write(crc)
         fd.write(footer)
         fd.close()
+        return True
     
-    def Load(self, fd):
-        pass
+    def Load(self):
+        fd = open(self.path, "rb")
+        unpack = struct.unpack
+        raw_header = fd.read(C_HEADERLEN)
+        header = raw_header[0:6]
+        algorithm = raw_header[6]
+        size = raw_header[7:15]
+        flags = raw_header[15]
+        app = raw_header[16:]
+        if header != C_FORMATHEADER:
+            fd.close()
+            raise Exception("Non valid file header.")
+            return False
+        # For the moment, let's assume everyone is nice and only tries to open PHash files...
+        self.hashtype, = unpack("<B", algorithm)
+        self.segsize, = unpack("<Q", size)
+        self.flags, = unpack("<B", flags)
+        self.appname = filter(lambda x: x != "\x00", app)
+        read_segments = True
+        hash_base = HashList[self.hashtype]
+        hash_len = hash_base().digestsize
+        while read_segments:
+            seg_id = fd.read(C_SEGIDLEN)
+            if not(seg_id in C_SEGIDS):
+                fd.close()
+                if seg_id:
+                    raise Exception("Non valid SegID.")
+                    return False
+                else:
+                    raise Exception("Unexpected End-of-File.")
+                    return False
+                break # not really necesary, this is unreachable
+            if seg_id == C_FOOTER_WILDCARD:
+                seg_id += fd.read(2)
+                if seg_id != C_FORMATFOOTER:
+                    print "Warning: incomplete footer at EOF!"
+                break
+            seg_len, = unpack("<Q", fd.read(8))
+            seg_data = fd.read(seg_len)
+            seg_crc, = unpack("<i", fd.read(4))
+            val_crc = zlib.crc32(seg_data)
+            path_end = seg_data.find("\x00")
+            path_data = ''
+            if path_end < -1:
+                print "Warning: wrong path information."
+            else:
+                path_data = seg_data[:path_end]
+                seg_data = seg_data[path_end + 1:]
+            hashes = []
+            corrupt = True
+            if (seg_crc == val_crc) and path_data:
+                hashes = [seg_data[x * hash_len : (x * hash_len) + hash_len] for x in xrange(seg_len / hash_len)]
+                corrupt = False
+            else:
+                print "Warning: corrupt CRC."
+            f = FileInfo(path_data, self, hashes, corrupt)
+            self.files.append(f)
+        fd.close()
+        
+        return True
+        
 
 class FileInfo(object):
-    def __init__(self, path, container):
+    def __init__(self, path, container, rhashes = None, corrupt = False):
         self.path = path
         self.container = container
+        self.corrupt = corrupt
+        if rhashes:
+            self.read_hashes = rhashes
+        else:
+            self.read_hashes = []
     
-    def GetHashes(self):
+    def CalculateHashes(self):
         ret = []
         hash = self.container.hash
         segsize = self.container.segsize
@@ -218,6 +298,9 @@ class FileInfo(object):
             data = fd.read(C_READSIZE)
         ret.append(g_hash.digest())
         return ret
+    
+    def GetHashes(self):
+        return self.read_hashes
     
     def GetPath(self):
         return self.path
@@ -259,7 +342,22 @@ def Hash(args):
     return True
 
 def Compare(args):
-    print "Compare mode."
+    container = PHashFile(args.ifile, 0, 0)
+    # Not entirely sure about what the best option is, but I feel the best should be letting the
+    # real comparison to be made between the read hashes and the calculated hashes, so its actually
+    # a responsibility left to this function what to do with each value and how to present the 
+    # results to the user.
+    container.Load()
+    for f in container.GetFiles():
+        print "Comparing {0}...".format((f.GetPath()))
+        print "Results: ",
+        hashes1 = f.GetHashes()
+        hashes2 = f.CalculateHashes()
+        for t in zip(hashes1, hashes2):
+            if t[0] == t[1]:
+                print "\b.",
+            else:
+                print "\bX", 
     return True
 
 def Convert(args):
