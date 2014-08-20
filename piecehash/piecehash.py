@@ -24,8 +24,8 @@
 # Based on a problem a forensic examiner friend of mine has, I had the thought of calculating and
 # storing not one, but a lot of MD5/SHA-1/etc hashes of a file, calculating a hash for the whole
 # file and also one every 1 MiB of data.
-# The idea was expanded, and arbitrarily sized segments considered. Also a file format defined to
-# store in a simple, storage-efficient, carving-friendly binary format.
+# The idea was expanded, and arbitrarily sized segments considered. Also a file format was defined
+# to store in a simple, storage-efficient, carving-friendly binary format.
 #===================================================================================================
 # Notes
 #===================================================================================================
@@ -45,6 +45,10 @@
 #===================================================================================================
 # Brief changelog:
 #===================================================================================================
+# Version 0.3.1:
+#   * Slight improvements in code.
+#   * Small changes in CLI behaviour.
+#   * Hopefully better/clearer code.
 # Version 0.3:
 #   * Hash mode works with 1 MiB sizes and a single file
 #   * PHash file format works
@@ -57,15 +61,22 @@
 #===================================================================================================
 # Roadmap:
 #===================================================================================================
+# Version 0.3.2:
+#   * If a file is longer than the hashed-original, (and additional content was added after a
+#   segment align border (eg: we had a 1 MB file, and then we add 100 more bytes), piecehash can
+#   recognize the now-longer file and reports additions correctly.
 # Version 0.4:
-#   * Hash mode works on arbitrary sizes and multiple files
-#   * Better error handling when opening PHash files.
+#   * Hash mode works on arbitrary sizes.
+#   * Better error handling when opening (bad) PHash files.
 # Version 0.5:
-#   * Compare mode works
+#   * Compare mode works (it already works, byt will need more testing with further changes)
 # Version 0.6:
 #   * Convert mode works
 # Version 0.7:
 #   * SHA-1, SHA-256 and SHA-512 hashes tested.
+# Version 0.8:
+#   * Multiple files per container tested.
+#   * Log file for verbose details.
 #===================================================================================================
 # Afterword
 #===================================================================================================
@@ -88,10 +99,10 @@ GIGA = 1024 * MEGA
 C_APPNAMELEN = 31
 C_FORMATHEADER = "PHASH\x00"
 C_FORMATFOOTER = "PHEND\x00"
-C_APPNAME = "P-Hash Python 0.3"
+C_APPNAME = "Piecehash Python 0.3.1"
 C_HEADERLEN = 48
 C_READSIZE = 1 * MEGA
-C_FOOTER_WILDCARD = 'PHEN'
+C_FOOTER_WILDCARD = C_FORMATFOOTER[:4]
 C_SEGIDS = [
     "SEG\x10",
     C_FOOTER_WILDCARD,     # not really a segment, but a hack to simplify PHashFile.Load
@@ -186,12 +197,20 @@ class PHashFile(object):
         return True
     
     def GetFiles(self):
+        """
+        Returns the internal file list.
+        """
         return self.files
     
     def Save(self):
-        h_hashtype = struct.pack("<B", self.hashtype)
-        h_segsize = struct.pack("<Q", self.segsize)
-        h_flags = struct.pack("<B", self.flags)
+        """
+        Saves a PHashFile container to a PHash Format File. Calculates the appropriate hashes for
+        every file that was added to the Files List, and stores the results in the container file.
+        """
+        pack = struct.pack
+        h_hashtype = pack("<B", self.hashtype)
+        h_segsize = pack("<Q", self.segsize)
+        h_flags = pack("<B", self.flags)
         h_appname = (self.appname + "\x00" * (C_APPNAMELEN - len(self.appname)))[:C_APPNAMELEN] + "\x00"
         header = self.header_template % (h_hashtype, h_segsize, h_flags, h_appname)
         footer = self.footer
@@ -201,9 +220,9 @@ class PHashFile(object):
         for f in self.files:
             data = f.GetPath() + "\x00"
             data += "".join(f.CalculateHashes())
-            crc = struct.pack("<i", zlib.crc32(data))
+            crc = pack("<i", zlib.crc32(data))
             fd.write(segid)
-            fd.write(struct.pack("<Q", len(data)))
+            fd.write(pack("<Q", len(data)))
             fd.write(data)
             fd.write(crc)
         fd.write(footer)
@@ -225,6 +244,7 @@ class PHashFile(object):
             return False
         # For the moment, let's assume everyone is nice and only tries to open PHash files...
         self.hashtype, = unpack("<B", algorithm)
+        self.hash = HashList[self.hashtype]
         self.segsize, = unpack("<Q", size)
         self.flags, = unpack("<B", flags)
         self.appname = filter(lambda x: x != "\x00", app)
@@ -273,6 +293,11 @@ class PHashFile(object):
         
 
 class FileInfo(object):
+    """
+    Class that holds a file information inside the container. A container can have 0-N FileInfo
+    objects that save save hashes and pathing information. The FileInfor object is the responsible
+    for calculating and holding read (from an opened Container File) hashes.
+    """
     def __init__(self, path, container, rhashes = None, corrupt = False):
         self.path = path
         self.container = container
@@ -282,7 +307,7 @@ class FileInfo(object):
         else:
             self.read_hashes = []
     
-    def CalculateHashes(self):
+    def CalculateHashes(self, save = False):
         ret = []
         hash = self.container.hash
         segsize = self.container.segsize
@@ -297,6 +322,8 @@ class FileInfo(object):
             p_hash = hash()
             data = fd.read(C_READSIZE)
         ret.append(g_hash.digest())
+        if save:
+            self.read_hashes = ret
         return ret
     
     def GetHashes(self):
@@ -304,6 +331,12 @@ class FileInfo(object):
     
     def GetPath(self):
         return self.path
+
+####################################################################################################
+# Up to here, its mostly the classes that implement the PHash File (Format) behaviour. From here on
+# its mostly functions to support the CLI. In a future release, the file should be split to separate
+# classes from CLI-functions.
+####################################################################################################
 
 def ArgParse():
     # parse command line arguments
@@ -343,21 +376,26 @@ def Hash(args):
 
 def Compare(args):
     container = PHashFile(args.ifile, 0, 0)
-    # Not entirely sure about what the best option is, but I feel the best should be letting the
-    # real comparison to be made between the read hashes and the calculated hashes, so its actually
-    # a responsibility left to this function what to do with each value and how to present the 
-    # results to the user.
+    # Responsibility of actually comparing hashes and showing results is left to this function.
+    # An alternative implementation could show results on the go, I prefer it this way to produce
+    # simpler code in the classes.
     container.Load()
     for f in container.GetFiles():
-        print "Comparing {0}...".format((f.GetPath()))
-        print "Results: ",
+        print "* %s..." % (f.GetPath()), 
         hashes1 = f.GetHashes()
         hashes2 = f.CalculateHashes()
-        for t in zip(hashes1, hashes2):
-            if t[0] == t[1]:
-                print "\b.",
-            else:
-                print "\bX", 
+        algname = container.hash().name
+        val1, val2 = hashes1[-1], hashes2[-1]
+        hashes1, hashes2 = hashes1[:-1], hashes2[:-1]
+        if val1 == val2:
+            print "match. %s: %s " % (algname, val1.encode("hex"))
+        else:
+            print "no match, showing block results:"
+            for t in zip(hashes1, hashes2):
+                if t[0] == t[1]:
+                    print "\b.",
+                else:
+                    print "\bX", 
     return True
 
 def Convert(args):
