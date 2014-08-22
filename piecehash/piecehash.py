@@ -45,6 +45,8 @@
 #===================================================================================================
 # Brief changelog:
 #===================================================================================================
+# Version 0.4:
+#   * Hash mode works on arbitrary sizes.
 # Version 0.3.2:
 #   * If a file is longer than the hashed-original, (and additional content was added after a
 #   segment align border (eg: we had a 1 MB file, and then we add 100 more bytes), piecehash can
@@ -69,8 +71,8 @@
 #===================================================================================================
 # Roadmap:
 #===================================================================================================
-# Version 0.4:
-#   * Hash mode works on arbitrary sizes.
+# Version 0.4.1:
+#   * Show mdoe works.
 #   * Better error handling when opening (bad) PHash files.
 # Version 0.5:
 #   * Compare mode works (it already works, byt will need more testing with further changes)
@@ -96,9 +98,9 @@ import zlib
 
 # A bit of version numbers...
 C_VER_MAJOR = 0
-C_VER_MINOR = 3
-C_VER_MICRO = 2
-C_VER_BUILD = 8     # more like "working code version", since there's no "build" per se
+C_VER_MINOR = 4
+C_VER_MICRO = 0
+C_VER_BUILD = 11     # more like "working code version", since there's no "build" per se
 C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
 C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
 
@@ -338,16 +340,25 @@ class FileInfo(object):
         ret = []
         hash = self.container.hash
         segsize = self.container.segsize
-        fd = open(self.path, "rb")
+        fd = open(self.path, "rb") # what if the file doesn't exist any more?
         g_hash = hash()
-        p_hash = hash()
         data = fd.read(C_READSIZE)
+        remainder = "" # here we'll have some remaining info for the case that the segment doesn't
+                       # align nicely with the read block.
         while data:
+            data = remainder + data
+            data_segs = [data[x * segsize : (x * segsize) + segsize] for x in xrange(len(data) / segsize)]
+            remainder = data[len(data) - (len(data) % segsize):]
             g_hash.update(data)
-            p_hash.update(data)
-            ret.append(p_hash.digest())
-            p_hash = hash()
+            for ds in data_segs:
+                p_hash = hash()
+                p_hash.update(ds)
+                ret.append(p_hash.digest())
             data = fd.read(C_READSIZE)
+        if remainder:
+            p_hash = hash()
+            p_hash.update(remainder)
+            ret.append(p_hash.digest())
         ret.append(g_hash.digest())
         if save:
             self.read_hashes = ret
