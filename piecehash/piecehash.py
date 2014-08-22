@@ -45,6 +45,14 @@
 #===================================================================================================
 # Brief changelog:
 #===================================================================================================
+# Version 0.3.2:
+#   * If a file is longer than the hashed-original, (and additional content was added after a
+#   segment align border (eg: we had a 1 MB file, and then we add 100 more bytes), piecehash can
+#   recognize the now-longer file and reports additions correctly.
+#   * It can also recognize a shorter-than-original file, and indicates the missing blocks at the
+#   end.
+#   * In both cases, unless the changes are aligned to a segment-border, the last block present in
+#   both lists will have a different hash value.
 # Version 0.3.1:
 #   * Slight improvements in code.
 #   * Small changes in CLI behaviour.
@@ -61,10 +69,6 @@
 #===================================================================================================
 # Roadmap:
 #===================================================================================================
-# Version 0.3.2:
-#   * If a file is longer than the hashed-original, (and additional content was added after a
-#   segment align border (eg: we had a 1 MB file, and then we add 100 more bytes), piecehash can
-#   recognize the now-longer file and reports additions correctly.
 # Version 0.4:
 #   * Hash mode works on arbitrary sizes.
 #   * Better error handling when opening (bad) PHash files.
@@ -80,8 +84,8 @@
 #===================================================================================================
 # Afterword
 #===================================================================================================
-# Special thanks to Fernando Greco, Ana Di Iorio, Hugo Curti, Juan Iturriaga, Marcos Vivar and
-# Javier Constanzo for ideas, comments and advice.
+# Special thanks to Fernando Greco, Ana Di Iorio, Hugo Curti, Juan Iturriaga, Marcos Vivar, Javier
+# Constanzo and Ariel Podesta for ideas, comments and advice.
 #===================================================================================================
 
 import argparse
@@ -90,16 +94,29 @@ import struct
 import sys
 import zlib
 
+# A bit of version numbers...
+C_VER_MAJOR = 0
+C_VER_MINOR = 3
+C_VER_MICRO = 2
+C_VER_BUILD = 8     # more like "working code version", since there's no "build" per se
+C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
+C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
+
 # A few constants for simplicity...
 KILO = 1024
 MEGA = 1024 * KILO
 GIGA = 1024 * MEGA
 
-# ... and some real constants. Lets start with some file format constants
+# ... and some real constants. Lets start with some file format constants.
+# (to understand some of this you might need to refer to the format definition a few lines ahead)
 C_APPNAMELEN = 31
 C_FORMATHEADER = "PHASH\x00"
 C_FORMATFOOTER = "PHEND\x00"
-C_APPNAME = "Piecehash Python 0.3.1"
+C_BASENAME = "Piecehash Python"
+C_AUTHORS = "Bruno Constanzo"
+C_YEARS = "2014"
+C_APPNAME = "%s %s" % (C_BASENAME, C_VERSTRING)
+C_APPLONGNAME = "%s %s - %s, %s" % (C_BASENAME, C_BUILDSTRING, C_AUTHORS, C_YEARS)
 C_HEADERLEN = 48
 C_READSIZE = 1 * MEGA
 C_FOOTER_WILDCARD = C_FORMATFOOTER[:4]
@@ -111,6 +128,8 @@ C_SEGIDLEN = 4
 C_FLAGS = {
     'origin': 0b00000001,
 }
+
+# Now the algorithm list, and the dict that maps algorithms names to the correct inedex
 
 HashList = [
     hashlib.md5,
@@ -230,6 +249,10 @@ class PHashFile(object):
         return True
     
     def Load(self):
+        """
+        Loads the contents of a PHash Format File into a PHashFile container object.
+        """
+        # This still needs a lot of work for bad files.
         fd = open(self.path, "rb")
         unpack = struct.unpack
         raw_header = fd.read(C_HEADERLEN)
@@ -257,10 +280,8 @@ class PHashFile(object):
                 fd.close()
                 if seg_id:
                     raise Exception("Non valid SegID.")
-                    return False
                 else:
                     raise Exception("Unexpected End-of-File.")
-                    return False
                 break # not really necesary, this is unreachable
             if seg_id == C_FOOTER_WILDCARD:
                 seg_id += fd.read(2)
@@ -281,7 +302,7 @@ class PHashFile(object):
             hashes = []
             corrupt = True
             if (seg_crc == val_crc) and path_data:
-                hashes = [seg_data[x * hash_len : (x * hash_len) + hash_len] for x in xrange(seg_len / hash_len)]
+                hashes = [seg_data[x * hash_len : (x * hash_len) + hash_len] for x in xrange(len(seg_data) / hash_len)]
                 corrupt = False
             else:
                 print "Warning: corrupt CRC."
@@ -308,6 +329,12 @@ class FileInfo(object):
             self.read_hashes = []
     
     def CalculateHashes(self, save = False):
+        """
+        Calculates the piecewise hashes, and global hash, for the file.
+        
+        save parameter tells us to keep the ret value as the self.read_hashes attribute. By default,
+        save is set to False.
+        """
         ret = []
         hash = self.container.hash
         segsize = self.container.segsize
@@ -327,15 +354,24 @@ class FileInfo(object):
         return ret
     
     def GetHashes(self):
+        """
+        Returns the read_hashes attribute. By convention, this are the values read from the
+        Container file at the moment of PHashFile.Load(), and may be different from
+        FileInfo.Calculate() values.
+        """
         return self.read_hashes
     
     def GetPath(self):
+        """
+        Returns the path of the file.
+        """
         return self.path
 
 ####################################################################################################
-# Up to here, its mostly the classes that implement the PHash File (Format) behaviour. From here on
+# Up to here, its mostly the classes that implement the PHash File Format behaviour. From here on
 # its mostly functions to support the CLI. In a future release, the file should be split to separate
-# classes from CLI-functions.
+# classes from CLI-functions. This should provide a more library-like experience and encourage
+# someone else to write another CLI, GUI or integrate the format into another tool.
 ####################################################################################################
 
 def ArgParse():
@@ -395,7 +431,14 @@ def Compare(args):
                 if t[0] == t[1]:
                     print "\b.",
                 else:
-                    print "\bX", 
+                    print "\bX",
+            # We might have some missing blocks at the end, or some new blocks. So we must account
+            # for them in the output.
+            lendiff = len(hashes1) - len(hashes2)
+            if lendiff < 0:
+                print "\b%s" % ("+" * abs(lendiff))
+            if lendiff > 0:
+                print "-" * lendiff
     return True
 
 def Convert(args):
