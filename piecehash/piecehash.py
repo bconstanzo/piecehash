@@ -45,6 +45,8 @@
 #===================================================================================================
 # Brief changelog:
 #===================================================================================================
+# Version 0.4.1:
+#   * Show mode works.
 # Version 0.4:
 #   * Hash mode works on arbitrary sizes.
 # Version 0.3.2:
@@ -71,15 +73,13 @@
 #===================================================================================================
 # Roadmap:
 #===================================================================================================
-# Version 0.4.1:
-#   * Show mdoe works.
-#   * Better error handling when opening (bad) PHash files.
 # Version 0.5:
-#   * Compare mode works (it already works, byt will need more testing with further changes)
+#   * Compare mode works (it already works, but will need more testing with further changes)
+#   * Better error handling when opening (bad) PHash files.
 # Version 0.6:
 #   * Convert mode works
 # Version 0.7:
-#   * SHA-1, SHA-256 and SHA-512 hashes tested.
+#   * SHA-1, SHA-256 and SHA-512 hashes tested and supported.
 # Version 0.8:
 #   * Multiple files per container tested.
 #   * Log file for verbose details.
@@ -99,8 +99,8 @@ import zlib
 # A bit of version numbers...
 C_VER_MAJOR = 0
 C_VER_MINOR = 4
-C_VER_MICRO = 0
-C_VER_BUILD = 11     # more like "working code version", since there's no "build" per se
+C_VER_MICRO = 1
+C_VER_BUILD = 14     # more like "working code version", since there's no "build" per se
 C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
 C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
 
@@ -413,11 +413,13 @@ def ArgParse():
     return args
 
 def Hash(args):
-    print "Hash mode."
     hash = HashTypes[args.hash]
+    print "Generating PHash file..."
     container = PHashFile(args.ofile, hash, args.segsize)
+    print "...adding %s..." % (args.ifile)
     container.AddFile(args.ifile)
     container.Save()
+    print "Done!"
     
     return True
 
@@ -449,7 +451,7 @@ def Compare(args):
             if lendiff < 0:
                 print "\b%s" % ("+" * abs(lendiff))
             if lendiff > 0:
-                print "-" * lendiff
+                print "\b%s" % ("-" * lendiff)
     return True
 
 def Convert(args):
@@ -457,7 +459,25 @@ def Convert(args):
     return True
 
 def Show(args):
-    print "Show mode."
+    container = PHashFile(args.ifile, 0, 0)
+    container.Load()
+    segsize, algorithm = container.segsize, container.hash().name
+    print "Container %s" % (args.ifile)
+    print "Segment size:%10d bytes" % (segsize)
+    print "Hashing algorithm: %s" % (algorithm)
+    for f in container.GetFiles():
+        hashes = f.GetHashes()
+        seg = 0
+        name = f.GetPath()
+        print "%s%30s%18s" % ("File", "Segment", "Hash")
+        print "=" * 80
+        for h in hashes:
+            val = ("%d - %d" % (seg, seg+segsize-1)).center(36)
+            val = ("%s%s" % (val, h.encode("hex"))).rjust(30)
+            val = ("%s" % (name)).ljust(10) + val
+            print val
+            seg += segsize
+    
     return True
 
 def main():
