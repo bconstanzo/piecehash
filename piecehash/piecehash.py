@@ -12,19 +12,19 @@
 # You should have received a copy of the GNU General Public License along with this program; if not,
 # write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA 
 #
-#===================================================================================================
+# ===================================================================================================
 
 import argparse
 import hashlib
 import struct
-import sys
+#import sys
 import zlib
 
 # A bit of version numbers...
 C_VER_MAJOR = 5
 C_VER_MINOR = 0
-C_VER_MICRO = 1
-C_VER_BUILD = 22    # more like "working code version", since there's no "build" per se
+C_VER_MICRO = 2
+C_VER_BUILD = 23  # more like "working code version", since there's no "build" per se
 C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
 C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
 
@@ -48,12 +48,12 @@ C_READSIZE = 1 * MEGA
 C_FOOTER_WILDCARD = C_FORMATFOOTER[:4]
 C_SEGIDS = [
     "SEG\x10",
-    C_FOOTER_WILDCARD,     # not really a segment, but a hack to simplify PHashFile.Load
+    C_FOOTER_WILDCARD,  # not really a segment, but a hack to simplify PHashFile.Load
     ]
 C_SEGIDLEN = 4
 C_FLAGS = {
     'origin': 0b00000001,
-}
+    }
 
 # Now the algorithm list, and the dict that maps algorithms names to the correct inedex
 
@@ -64,11 +64,12 @@ HashList = [
     hashlib.sha512,
     ]
 HashTypes = {
-    "md5":0,
-    "sha1":1,
-    "sha256":2,
-    "sha512":3,
+    "md5": 0,
+    "sha1": 1,
+    "sha256": 2,
+    "sha512": 3,
     }
+
 
 # Description of the Piecewise-Hash File Format:
 # The structure of a .phash file is as follows:
@@ -112,6 +113,7 @@ HashTypes = {
 #                           Converted PHash file, it is a full string of zeros, of the same length
 #                           a valid hash (of the appropriate type) is.
 
+
 class PHashFile(object):
     """
     Class that handles a PHash Container in memory, maintains information about algorithm, segment
@@ -120,6 +122,7 @@ class PHashFile(object):
     The usage is to instantiate a PHashFile, add files to it, and then save it. On the Save method,
     FileInfo.GetHashes() is called for each file and the information is stored to disk.
     """
+
     def __init__(self, path, hashtype, segsize):
         # First we take care of the parameters...
         self.path = path
@@ -132,7 +135,7 @@ class PHashFile(object):
         self.flags = C_FLAGS['origin']
         self.appname = C_APPNAME
         self.files = []
-    
+
     def AddFile(self, path):
         """
         Adds a file to the internal list. Hashes are NOT calculated at this stage.
@@ -140,13 +143,13 @@ class PHashFile(object):
         fe = FileInfo(path, self)
         self.files.append(fe)
         return True
-    
+
     def GetFiles(self):
         """
         Returns the internal file list.
         """
         return self.files
-    
+
     def Save(self):
         """
         Saves a PHashFile container to a PHash Format File. Calculates the appropriate hashes for
@@ -155,7 +158,7 @@ class PHashFile(object):
         # Let's document a bit here...
         pack = struct.pack  # for code shortness. It may give a tiny improvement in performance too.
         # Now we have to pack all the information of the Object to save it into the binary file
-        h_hashtype = pack("<B", self.hashtype) 
+        h_hashtype = pack("<B", self.hashtype)
         h_segsize = pack("<Q", self.segsize)
         h_flags = pack("<B", self.flags)
         # Also we clip and adapt the appname, so that it will fit in its allocated space in the
@@ -185,7 +188,7 @@ class PHashFile(object):
         fd.write(footer)
         fd.close()
         return True
-    
+
     def Load(self):
         """
         Loads the contents of a PHash Format File into a PHashFile container object.
@@ -217,13 +220,12 @@ class PHashFile(object):
         while read_segments:
             # We read a Segment ID and check if it's valid
             seg_id = fd.read(C_SEGIDLEN)
-            if not(seg_id in C_SEGIDS):
+            if not (seg_id in C_SEGIDS):
                 fd.close()
                 if seg_id:
                     raise Exception("Non valid SegID.")
                 else:
                     raise Exception("Unexpected End-of-File.")
-                break # not really necesary, this is unreachable
             # As a simple hack, we put a part of the file format footer as a valid SegID. Now we
             # have to check if it is a footer. If its not complete, we give a warning but stop
             # reading the file anyway (so we assume its marking the EOF).
@@ -250,17 +252,17 @@ class PHashFile(object):
             hashes = []
             corrupt = True
             if (seg_crc == val_crc) and path_data:
-                hashes = [seg_data[x * hash_len : (x * hash_len) + hash_len] for x in xrange(len(seg_data) / hash_len)]
+                hashes = [seg_data[x * hash_len: (x * hash_len) + hash_len] for x in xrange(len(seg_data) / hash_len)]
                 corrupt = False
             else:
                 print "Warning: corrupt CRC."
-            
+
             f = FileInfo(path_data, self, hashes, corrupt)
             self.files.append(f)
         fd.close()
-        
+
         return True
-        
+
 
 class FileInfo(object):
     """
@@ -268,7 +270,8 @@ class FileInfo(object):
     objects that save save hashes and pathing information. The FileInfor object is the responsible
     for calculating and holding read (from an opened Container File) hashes.
     """
-    def __init__(self, path, container, rhashes = None, corrupt = False):
+
+    def __init__(self, path, container, rhashes=None, corrupt=False):
         self.path = path
         self.container = container
         self.corrupt = corrupt
@@ -276,8 +279,8 @@ class FileInfo(object):
             self.read_hashes = rhashes
         else:
             self.read_hashes = []
-    
-    def CalculateHashes(self, save = False):
+
+    def CalculateHashes(self, save=False):
         """
         Calculates the piecewise hashes, and global hash, for the file.
         
@@ -285,17 +288,17 @@ class FileInfo(object):
         save is set to False.
         """
         ret = []
-        hash = self.container.hash
+        hash_alg = self.container.hash
         segsize = self.container.segsize
-        fd = open(self.path, "rb") # what if the file doesn't exist any more?
-        g_hash = hash()
+        fd = open(self.path, "rb")  # what if the file doesn't exist any more?
+        g_hash = hash_alg()
         data = fd.read(C_READSIZE)
-        remainder = "" # here we'll have some remaining info for the case that the segment doesn't
-                       # align nicely with the read block.
+        remainder = ""  # here we'll have some remaining info for the case that the segment doesn't
+        # align nicely with the read block.
         while data:
             data = remainder + data
             # here we split data into data_segs to easily calculate piecewise hashes
-            data_segs = [data[x * segsize : (x * segsize) + segsize] for x in xrange(len(data) / segsize)]
+            data_segs = [data[x * segsize: (x * segsize) + segsize] for x in xrange(len(data) / segsize)]
             # there might be some data that doesn't fit (segsize doesn't align with C_READSIZE), so
             # we keep it, either for the next loop or for when we finish.
             remainder = data[len(data) - (len(data) % segsize):]
@@ -303,20 +306,20 @@ class FileInfo(object):
             # this for-loop can be turned into a list comprehension, but for the moment I think it
             # would hurt code clarity. It could speed up processing of files, will check later on.
             for ds in data_segs:
-                p_hash = hash()
+                p_hash = hash_alg()
                 p_hash.update(ds)
                 ret.append(p_hash.digest())
             data = fd.read(C_READSIZE)
         # If we have a remainder, we need to update the last hash and append it.
         if remainder:
-            p_hash = hash()
+            p_hash = hash_alg()
             p_hash.update(remainder)
             ret.append(p_hash.digest())
         ret.append(g_hash.digest())
         if save:
             self.read_hashes = ret
         return ret
-    
+
     def GetHashes(self):
         """
         Returns the read_hashes attribute. By convention, this are the values read from the
@@ -324,19 +327,20 @@ class FileInfo(object):
         FileInfo.Calculate() values.
         """
         return self.read_hashes
-    
+
     def SetHashes(self, hashes):
         """
         Sets the read_hashes attribute. Provided both for symmetry and eventual need for it.
         """
         self.read_hashes = hashes
         return True
-    
+
     def GetPath(self):
         """
         Returns the path of the file.
         """
         return self.path
+
 
 ####################################################################################################
 # Up to here, its mostly the classes that implement the PHash File Format behaviour. From here on
@@ -350,44 +354,46 @@ def ArgParse():
     parser = argparse.ArgumentParser(description='steg: applies steganography to an image.')
     parser.add_argument("ifile",
                         nargs="+",
-                        help = "Input file.")
+                        help="Input file.")
     parser.add_argument("-m",
-                        dest = "mode",
-                        choices = ["hash", "compare", "convert", "show"], 
-                        default = "hash",
-                        help = "Mode of operation.")
-    parser.add_argument("-o", 
-                        dest = "ofile",
-                        default = "hashes.phash",
-                        help = "Output file.")
-    parser.add_argument("-a", 
-                        dest = "hash",
-                        choices = ["md5", "sha-1", "sha-256", "sha-512"], 
-                        default = "md5",
-                        help = "The hash algorithm to be used.")
-    parser.add_argument("-s", 
-                        dest = "segsize",
-                        type = int, 
-                        default = 1 * MEGA,
-                        help = "The segment size to calculate partial hashes.")
+                        dest="mode",
+                        choices=["hash", "compare", "convert", "show"],
+                        default="hash",
+                        help="Mode of operation.")
+    parser.add_argument("-o",
+                        dest="ofile",
+                        default="hashes.phash",
+                        help="Output file.")
+    parser.add_argument("-a",
+                        dest="hash",
+                        choices=["md5", "sha-1", "sha-256", "sha-512"],
+                        default="md5",
+                        help="The hash algorithm to be used.")
+    parser.add_argument("-s",
+                        dest="segsize",
+                        type=int,
+                        default=1 * MEGA,
+                        help="The segment size to calculate partial hashes.")
     args = parser.parse_args()
     return args
+
 
 def Hash(args):
     """
     Reads a file from the specified path, calculates the hashes and stores all the information in
     the PHash File container (output option
     """
-    hash = HashTypes[args.hash]
+    hash_alg = HashTypes[args.hash]
     print "Generating PHash file..."
-    container = PHashFile(args.ofile, hash, args.segsize)
+    container = PHashFile(args.ofile, hash_alg, args.segsize)
     for i in args.ifile:
         print "...adding %s..." % (i)
         container.AddFile(i)
     container.Save()
     print "Done!"
-    
+
     return True
+
 
 def Compare(args):
     """
@@ -400,15 +406,15 @@ def Compare(args):
     A plus sign (+) tells us the file in disk has additional blocks the original file didn't have.
     A minus sign (-) tels us the file in disk is missing blocks the original file did have.
     """
-    ifile = args.ifile[0]   # for the moment we'll work with the first element only, although it
-                            # could work with multiple PHash Containers at a time
+    ifile = args.ifile[0]  # for the moment we'll work with the first element only, although it
+    # could work with multiple PHash Containers at a time
     container = PHashFile(ifile, 0, 0)
     # Responsibility of actually comparing hashes and showing results is left to this function.
     # An alternative implementation could show results on the go, I prefer it this way to produce
     # simpler code in the classes.
     container.Load()
     for f in container.GetFiles():
-        print "* %s..." % (f.GetPath()), 
+        print "* %s..." % (f.GetPath()),
         hashes1 = f.GetHashes()
         hashes2 = f.CalculateHashes()
         algname = container.hash().name
@@ -433,12 +439,14 @@ def Compare(args):
                 print "\b%s" % ("-" * lendiff)
     return True
 
+
 def Convert(args):
     """
     Converts a dc3dd/md5deep/hashdeep file to PHash Format.
     """
     print "Convert mode."
     return True
+
 
 def Show(args):
     """
@@ -460,24 +468,26 @@ def Show(args):
         name = f.GetPath()
         print "\nFile                              Segment                       Hash"
         for h in hashes:
-            val = ("%d - %d" % (seg, seg+segsize-1)).center(36)
+            val = ("%d - %d" % (seg, seg + segsize - 1)).center(36)
             val = ("%s%s" % (val, h.encode("hex"))).rjust(30)
             val = ("%s" % (name)).ljust(20) + val
             print val
             seg += segsize
-    
+
     return True
+
 
 def main():
     args = ArgParse()
     calls = {
-        "hash":Hash,
-        "compare":Compare,
-        "convert":Convert,
-        "show":Show, 
+        "hash": Hash,
+        "compare": Compare,
+        "convert": Convert,
+        "show": Show,
         }
     op = calls[args.mode]
     op(args)
-    
+
+
 if __name__ == "__main__":
     main()

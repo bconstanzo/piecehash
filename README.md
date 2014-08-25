@@ -8,7 +8,7 @@ Introduction
 
 piecehash is a program for calculating many MD5 (or other algorithm) hashes for a file, and also has
 the definition and reference implementation of a file format that stores the calculated hashes.
-Although it is not finished, it is already be able to perform hashing and comparisons.
+Although it is not finished, it is already able to perform hashing and comparisons.
 
 Why?
 ====
