@@ -13,88 +13,6 @@
 # write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA 
 #
 #===================================================================================================
-# Introduction
-#===================================================================================================
-# piecehash is a program for calculating many MD5 (or other algorithm) hashes for a file, and also
-# the reference implementation and definition of a file format that stores the calculated hashes.
-# Once finished it should be able to perform hashing and comparisons.
-#===================================================================================================
-# Why?
-#===================================================================================================
-# Based on a problem a forensic examiner friend of mine has, I had the thought of calculating and
-# storing not one, but a lot of MD5/SHA-1/etc hashes of a file, calculating a hash for the whole
-# file and also one every 1 MiB of data.
-# The idea was expanded, and arbitrarily sized segments considered. Also a file format was defined
-# to store in a simple, storage-efficient, carving-friendly binary format.
-#===================================================================================================
-# Notes
-#===================================================================================================
-#
-# Note 2014-07-08:
-#   I just found out of Jesse Kornblum's work on hashdeep, md5deep and dc3dd with piecewise hashes
-#   which provide the same functionality I was aiming for with p-hash (partial-hashes). P still
-#   stands in the name, now for piecewise. Will do some work to provide compatibility with
-#   Kornblums implementation, and focus work more in the binary file format.
-#
-# Note 2014-0713:
-#   Name changed from "PHash" to "piecehash" to avoid confusion with pHash, and also recognize
-#   Nick Harbour's and Jesse Kornblum's previous work on this topic.
-#   There might still be some references to PHash arround.
-#
-# Bruno Constanzo, 2014
-#===================================================================================================
-# Brief changelog:
-#===================================================================================================
-# Version 0.4.1:
-#   * Show mode works.
-# Version 0.4:
-#   * Hash mode works on arbitrary segment sizes.
-# Version 0.3.2:
-#   * If a file is longer than the hashed-original, (and additional content was added after a
-#   segment align border (eg: we had a 1 MB file, and then we add 100 more bytes), piecehash can
-#   recognize the now-longer file and reports additions correctly.
-#   * It can also recognize a shorter-than-original file, and indicates the missing blocks at the
-#   end.
-#   * In both cases, unless the changes are aligned to a segment-border, the last block present in
-#   both lists will have a different hash value.
-# Version 0.3.1:
-#   * Slight improvements in code.
-#   * Small changes in CLI behaviour.
-#   * Hopefully better/clearer code.
-# Version 0.3:
-#   * Hash mode works with 1 MiB sizes and a single file
-#   * PHash file format works
-# Version 0.2:
-#   * See Note 2014-07-08 and Note 2014-07-13
-# Version 0.1:
-#   * Structure layout
-#   * Most functions are dummys
-#   * Work in progress!
-#===================================================================================================
-# Roadmap:
-#===================================================================================================
-# Version 0.5:
-#   * Compare mode works. It already worked, but needed more testing with further changes -- still
-#   an objective, there's always something to fix!
-#   * Multiple files per container tested. The file format and classes supported it, but the CLI 
-#   tool was lacking support.
-#   * Better error handling when opening (bad) PHash files.
-# Version 0.6:
-#   * Convert mode works. Convert mode is aimed at taking the output of another Piecehash Capable
-#   Program (eg: Kornblum's dc3dd, md5deep, hashdeep, others?) and translate that into a PHash File.
-# Version 0.7:
-#   * SHA-1, SHA-256 and SHA-512 hashes tested and supported.
-# Version 0.7+ (undefined version number):
-#   * Log file for verbose details.
-#   * Observer interface for communication with the "outer world". This should bring cleaner code in
-#   the CLI functions and provide a better interface for "interactivity". Specially useful when
-#   working with large files!
-#===================================================================================================
-# Afterword
-#===================================================================================================
-# Special thanks to Fernando Greco, Ana Di Iorio, Hugo Curti, Juan Iturriaga, Marcos Vivar, Javier
-# Constanzo and Ariel Podesta for ideas, comments and advice.
-#===================================================================================================
 
 import argparse
 import hashlib
@@ -105,8 +23,8 @@ import zlib
 # A bit of version numbers...
 C_VER_MAJOR = 5
 C_VER_MINOR = 0
-C_VER_MICRO = 0
-C_VER_BUILD = 21    # more like "working code version", since there's no "build" per se
+C_VER_MICRO = 1
+C_VER_BUILD = 22    # more like "working code version", since there's no "build" per se
 C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
 C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
 
@@ -295,7 +213,7 @@ class PHashFile(object):
         hash_len = hash_base().digestsize
         # Now we are ready to read the hash values directly from the file into the in memory list.
         # Inside this while loop, we follow the description of Segment from the Partial-Hash File
-        # Format Definition (around line 149 onwards, might be a bit off).
+        # Format Definition (around line 73 onwards, might be a bit off).
         while read_segments:
             # We read a Segment ID and check if it's valid
             seg_id = fd.read(C_SEGIDLEN)

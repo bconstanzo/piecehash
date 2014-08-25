@@ -1,0 +1,48 @@
+Changelog:
+==========
+
+ Version 0.5:
+   * Compare mode works. It already worked, but needed more testing with further changes -- still
+   an objective, there's always something to fix!
+   * Multiple files per container tested. The file format and classes supported it, but the CLI 
+   tool was lacking support.
+   * Better error handling when opening (bad) PHash files.
+ Version 0.4.1:
+   * Show mode works.
+ Version 0.4:
+   * Hash mode works on arbitrary segment sizes.
+ Version 0.3.2:
+   * If a file is longer than the hashed-original, (and additional content was added after a
+   segment align border (eg: we had a 1 MB file, and then we add 100 more bytes), piecehash can
+   recognize the now-longer file and reports additions correctly.
+   * It can also recognize a shorter-than-original file, and indicates the missing blocks at the
+   end.
+   * In both cases, unless the changes are aligned to a segment-border, the last block present in
+   both lists will have a different hash value.
+ Version 0.3.1:
+   * Slight improvements in code.
+   * Small changes in CLI behaviour.
+   * Hopefully better/clearer code.
+ Version 0.3:
+   * Hash mode works with 1 MiB sizes and a single file
+   * PHash file format works
+ Version 0.2:
+   * See Note 2014-07-08 and Note 2014-07-13
+ Version 0.1:
+   * Structure layout
+   * Most functions are dummys
+   * Work in progress!
+
+Roadmap:
+========
+
+ Version 0.6:
+   * Convert mode works. Convert mode is aimed at taking the output of another Piecehash Capable
+   Program (eg: Kornblum's dc3dd, md5deep, hashdeep, others?) and translate that into a PHash File.
+ Version 0.7:
+   * SHA-1, SHA-256 and SHA-512 hashes tested and supported.
+ Version 0.7+ (undefined version number):
+   * Log file for verbose details.
+   * Observer interface for communication with the "outer world". This should bring cleaner code in
+   the CLI functions and provide a better interface for "interactivity". Specially useful when
+   working with large files!
