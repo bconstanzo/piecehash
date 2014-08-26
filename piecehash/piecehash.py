@@ -21,10 +21,10 @@ import struct
 import zlib
 
 # A bit of version numbers...
-C_VER_MAJOR = 5
+C_VER_MAJOR = 6
 C_VER_MINOR = 0
-C_VER_MICRO = 2
-C_VER_BUILD = 23  # more like "working code version", since there's no "build" per se
+C_VER_MICRO = 0
+C_VER_BUILD = 27  # more like "working code version", since there's no "build" per se
 C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
 C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
 
@@ -55,7 +55,7 @@ C_FLAGS = {
     'origin': 0b00000001,
     }
 
-# Now the algorithm list, and the dict that maps algorithms names to the correct inedex
+# Now the algorithm list, and the dict that maps algorithms names to the correct index
 
 HashList = [
     hashlib.md5,
@@ -63,6 +63,7 @@ HashList = [
     hashlib.sha256,
     hashlib.sha512,
     ]
+
 HashTypes = {
     "md5": 0,
     "sha1": 1,
@@ -70,6 +71,9 @@ HashTypes = {
     "sha512": 3,
     }
 
+HashLengths = []
+for h in HashList:
+    HashLengths.append(h().digest_size)
 
 # Description of the Piecewise-Hash File Format:
 # The structure of a .phash file is as follows:
@@ -86,9 +90,9 @@ HashTypes = {
 #   * Hash algorithm (1 byte)       unsigned short, index of HashList
 #   * Segment size (8 bytes)        unsigned long, size in bytes
 #   * Flags:
-#      * Hash origin (1 byte)       unsigned short, tells if a PHash file comes from a PHash program
+#      * Hash origin (1 bit)        unsigned short, tells if a PHash file comes from a PHash program
 #                                   or if it was made through conversion from md5deep. Converted
-#                                   files don't have a fullhash at the end.
+#                                   files don't have a full hash at the end.
 #                                   0 == converted, 1 == PHash Complete
 #   * Appname (32 bytes)            31 char string + \x00 - might be all zeros. Identifies which
 #                                   program made the file.
@@ -113,7 +117,6 @@ HashTypes = {
 #                           Converted PHash file, it is a full string of zeros, of the same length
 #                           a valid hash (of the appropriate type) is.
 
-
 class PHashFile(object):
     """
     Class that handles a PHash Container in memory, maintains information about algorithm, segment
@@ -136,11 +139,11 @@ class PHashFile(object):
         self.appname = C_APPNAME
         self.files = []
 
-    def AddFile(self, path):
+    def AddFile(self, path, rhashes=None):
         """
         Adds a file to the internal list. Hashes are NOT calculated at this stage.
         """
-        fe = FileInfo(path, self)
+        fe = FileInfo(path, self, rhashes)
         self.files.append(fe)
         return True
 
@@ -150,10 +153,12 @@ class PHashFile(object):
         """
         return self.files
 
-    def Save(self):
+    def Save(self, lazy = False):
         """
         Saves a PHashFile container to a PHash Format File. Calculates the appropriate hashes for
         every file that was added to the Files List, and stores the results in the container file.
+
+        :param lazy indicates that hashes are not calculated, but read through f.GetHashes()
         """
         # Let's document a bit here...
         pack = struct.pack  # for code shortness. It may give a tiny improvement in performance too.
@@ -176,7 +181,10 @@ class PHashFile(object):
         segid = C_SEGIDS[0]
         for f in self.files:
             data = f.GetPath() + "\x00"
-            data += "".join(f.CalculateHashes())
+            if lazy:
+                data += "".join(f.GetHashes())
+            else:
+                data += "".join(f.CalculateHashes())
             crc = pack("<i", zlib.crc32(data))
             fd.write(segid)
             fd.write(pack("<Q", len(data)))
@@ -263,12 +271,11 @@ class PHashFile(object):
 
         return True
 
-
 class FileInfo(object):
     """
     Class that holds a file information inside the container. A container can have 0-N FileInfo
-    objects that save save hashes and pathing information. The FileInfor object is the responsible
-    for calculating and holding read (from an opened Container File) hashes.
+    objects that save save hashes and path information. The FileInfo object is the responsible for
+    calculating and holding read (from an opened Container File) hashes.
     """
 
     def __init__(self, path, container, rhashes=None, corrupt=False):
@@ -283,7 +290,7 @@ class FileInfo(object):
     def CalculateHashes(self, save=False):
         """
         Calculates the piecewise hashes, and global hash, for the file.
-        
+
         save parameter tells us to keep the ret value as the self.read_hashes attribute. By default,
         save is set to False.
         """
@@ -351,7 +358,7 @@ class FileInfo(object):
 
 def ArgParse():
     # parse command line arguments
-    parser = argparse.ArgumentParser(description='steg: applies steganography to an image.')
+    parser = argparse.ArgumentParser(description='piecehash: calculates piecewise hashes for a file.')
     parser.add_argument("ifile",
                         nargs="+",
                         help="Input file.")
@@ -393,7 +400,6 @@ def Hash(args):
     print "Done!"
 
     return True
-
 
 def Compare(args):
     """
@@ -444,7 +450,48 @@ def Convert(args):
     """
     Converts a dc3dd/md5deep/hashdeep file to PHash Format.
     """
-    print "Convert mode."
+    ifile = args.ifile[0]
+    # Example input of ifile:
+    # 01674af2b0313f1976e6b6ac3c54a76d  c:\Test\crim\memoria.dd offset 0-1048575
+    # 473b4cacf4d6ba9fd9aa926c1bd5dd29  c:\Test\crim\memoria.dd offset 1048576-2097151
+    # 5500f139f8b13b840090c47522822145  c:\Test\crim\memoria.dd offset 2097152-3145727
+    # 86a1791377c52139d4211a9639dd8519  c:\Test\crim\memoria.dd offset 3145728-4194303
+    # 76f55a568473f0c55fc796c78bec3c30  c:\Test\crim\memoria.dd offset 4194304-5242879
+    # 5a0c226f7d49a8f1600086aed2714d6a  c:\Test\crim\memoria.dd offset 5242880-6291455
+    # fceebf33424f29d98150bf9ce6f36499  c:\Test\crim\memoria.dd offset 6291456-7340031
+    # ...
+    fd = open(ifile, "r")
+    # Thought I'd be able to pull it with a simple line.split(" "), but paths with spaces are a
+    # mess. Will have to do it the ugly way...
+    hashes = []
+    po_list = [] # short for path-offset-list
+    for line in fd:
+        line = line.strip() # there shouldn't be any spaces ahead or before, but...
+        pos = line.find("  ")
+        hashes.append(line[:pos].decode("hex"))
+        po_list.append(line[pos + 2:])
+    fd.close()
+    line = po_list[0] # we take the first line back to get path and seg_size
+    pos = line.find(" offset")
+    path = line[:pos]
+    line = line[pos + len(" offset "):]
+    s1, s2 = map(int, line.split("-"))
+    hash_len = len(hashes[0])
+    if not(hash_len in HashLengths):
+        print "Error: hash-type could not be recognized through length. Probable bad input file."
+        return False
+    hashtype = HashLengths.index(hash_len)
+    segsize = s2 - s1 + 1 # this errs in shorter-than-segsize files, but its unavoidable.
+    # Now we have all the information we need to instantiate the PHashFile Container and save it
+    # to disk.
+    container = PHashFile(args.ofile, hashtype, segsize)
+    # we need to add a fictitious global hash -- will look into it and see if we can generate the
+    # global hash from the segment hashes.
+    hashes.append("\x00" * hash_len)
+    container.AddFile(path, hashes)
+    container.Save(True)
+    print "* %s converted successfully to %s!" % (ifile, args.ofile)
+
     return True
 
 
@@ -462,15 +509,21 @@ def Show(args):
     print "Container %s" % (ifile)
     print "Segment size:%10d bytes" % (segsize)
     print "Hashing algorithm: %s" % (algorithm)
+    complete = bool(container.flags & C_FLAGS['origin'])
     for f in container.GetFiles():
         hashes = f.GetHashes()
         seg = 0
         name = f.GetPath()
-        print "\nFile                              Segment                       Hash"
+        if complete:
+            print "Global hash: %s" % hashes[-1].encode("hex")
+        hashes = hashes[:-1]
+        print "\nHash                              File                         Segment"
         for h in hashes:
-            val = ("%d - %d" % (seg, seg + segsize - 1)).center(36)
-            val = ("%s%s" % (val, h.encode("hex"))).rjust(30)
-            val = ("%s" % (name)).ljust(20) + val
+            if len(name) > 29:
+                val = "..." + name[-25:] + " "
+            else:
+                val = name.ljust(29)
+            val = h.encode("hex") + "  " + val + "%d-%d" % (seg, seg + segsize - 1)
             print val
             seg += segsize
 
