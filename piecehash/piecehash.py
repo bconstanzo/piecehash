@@ -12,9 +12,10 @@
 # You should have received a copy of the GNU General Public License along with this program; if not,
 # write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA 
 #
-# ===================================================================================================
+# ==================================================================================================
 
 import argparse
+import datetime     # for some timings and measures
 import hashlib
 import struct
 #import sys
@@ -22,11 +23,13 @@ import zlib
 
 # A bit of version numbers...
 C_VER_MAJOR = 6
-C_VER_MINOR = 0
+C_VER_MINOR = 1
 C_VER_MICRO = 0
-C_VER_BUILD = 27  # more like "working code version", since there's no "build" per se
+C_VER_BUILD = 35  # more like "working code version", since there's no build per se
 C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
 C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
+# ...and something for tests...
+DEBUG_BENCHMARK = True
 
 # A few constants for simplicity...
 KILO = 1024
@@ -52,7 +55,7 @@ C_SEGIDS = [
     ]
 C_SEGIDLEN = 4
 C_FLAGS = {
-    'origin': 0b00000001,
+    "origin": 0b00000001,
     }
 
 # Now the algorithm list, and the dict that maps algorithms names to the correct index
@@ -126,7 +129,7 @@ class PHashFile(object):
     FileInfo.GetHashes() is called for each file and the information is stored to disk.
     """
 
-    def __init__(self, path, hashtype, segsize):
+    def __init__(self, path, hashtype, segsize, flags=C_FLAGS["origin"]):
         # First we take care of the parameters...
         self.path = path
         # ...and now of some constants
@@ -135,7 +138,7 @@ class PHashFile(object):
         self.hashtype = hashtype
         self.hash = HashList[hashtype]
         self.segsize = segsize
-        self.flags = C_FLAGS['origin']
+        self.flags = flags
         self.appname = C_APPNAME
         self.files = []
 
@@ -251,7 +254,7 @@ class PHashFile(object):
             seg_crc, = unpack("<i", fd.read(4))
             val_crc = zlib.crc32(seg_data)
             path_end = seg_data.find("\x00")
-            path_data = ''
+            path_data = ""
             if path_end < -1:
                 print "Warning: wrong path information."
             else:
@@ -265,8 +268,8 @@ class PHashFile(object):
             else:
                 print "Warning: corrupt CRC."
 
-            f = FileInfo(path_data, self, hashes, corrupt)
-            self.files.append(f)
+            fe = FileInfo(path_data, self, hashes, corrupt)
+            self.files.append(fe)
         fd.close()
 
         return True
@@ -317,6 +320,8 @@ class FileInfo(object):
                 p_hash.update(ds)
                 ret.append(p_hash.digest())
             data = fd.read(C_READSIZE)
+        # I had forgotten about fd.close()! there goes another point to "with" constructs!
+        fd.close()
         # If we have a remainder, we need to update the last hash and append it.
         if remainder:
             p_hash = hash_alg()
@@ -358,7 +363,8 @@ class FileInfo(object):
 
 def ArgParse():
     # parse command line arguments
-    parser = argparse.ArgumentParser(description='piecehash: calculates piecewise hashes for a file.')
+    parser = argparse.ArgumentParser(
+        description="piecehash: calculates piecewise hashes for a file.")
     parser.add_argument("ifile",
                         nargs="+",
                         help="Input file.")
@@ -373,7 +379,7 @@ def ArgParse():
                         help="Output file.")
     parser.add_argument("-a",
                         dest="hash",
-                        choices=["md5", "sha-1", "sha-256", "sha-512"],
+                        choices=["md5", "sha1", "sha256", "sha512"],
                         default="md5",
                         help="The hash algorithm to be used.")
     parser.add_argument("-s",
@@ -396,6 +402,7 @@ def Hash(args):
     for i in args.ifile:
         print "...adding %s..." % (i)
         container.AddFile(i)
+    print "Calculating hashes..."
     container.Save()
     print "Done!"
 
@@ -407,10 +414,10 @@ def Compare(args):
     against the stored hashes.
     If the global hash matches, a match is reported. When global hash doesn't match, detailed
     per-block information is shown to represent every block.
-    A dot (.) tells us blocks match in the stored hash and the file.
+    A dot . tells us blocks match in the stored hash and the file.
     A letter X tells us blocks don't match.
-    A plus sign (+) tells us the file in disk has additional blocks the original file didn't have.
-    A minus sign (-) tels us the file in disk is missing blocks the original file did have.
+    A plus sign + tells us the file in disk has additional blocks the original file didn't have.
+    A minus sign - tels us the file in disk is missing blocks the original file did have.
     """
     ifile = args.ifile[0]  # for the moment we'll work with the first element only, although it
     # could work with multiple PHash Containers at a time
@@ -424,13 +431,17 @@ def Compare(args):
         hashes1 = f.GetHashes()
         hashes2 = f.CalculateHashes()
         algname = container.hash().name
+        complete = bool(container.flags & C_FLAGS["origin"])
         val1, val2 = hashes1[-1], hashes2[-1]
         hashes1, hashes2 = hashes1[:-1], hashes2[:-1]
         #if False: # this is a replacement for the next line to test some cases.
         if val1 == val2:
             print "match. %s: %s " % (algname, val1.encode("hex"))
         else:
-            print "no match, showing block results:"
+            if complete:
+                print "no match, showing block results:"
+            else:
+                print "container misses a global hash, showing block results:"
             for t in zip(hashes1, hashes2):
                 if t[0] == t[1]:
                     print "\b.",
@@ -484,12 +495,12 @@ def Convert(args):
     segsize = s2 - s1 + 1 # this errs in shorter-than-segsize files, but its unavoidable.
     # Now we have all the information we need to instantiate the PHashFile Container and save it
     # to disk.
-    container = PHashFile(args.ofile, hashtype, segsize)
+    container = PHashFile(args.ofile, hashtype, segsize, 0)
     # we need to add a fictitious global hash -- will look into it and see if we can generate the
     # global hash from the segment hashes.
     hashes.append("\x00" * hash_len)
     container.AddFile(path, hashes)
-    container.Save(True)
+    container.Save(lazy = True)
     print "* %s converted successfully to %s!" % (ifile, args.ofile)
 
     return True
@@ -506,18 +517,22 @@ def Show(args):
     container = PHashFile(ifile, 0, 0)
     container.Load()
     segsize, algorithm = container.segsize, container.hash().name
+    hashlen = container.hash().digest_size
     print "Container %s" % (ifile)
-    print "Segment size:%10d bytes" % (segsize)
+    print "Segment size: %10d bytes" % (segsize)
     print "Hashing algorithm: %s" % (algorithm)
-    complete = bool(container.flags & C_FLAGS['origin'])
+    complete = bool(container.flags & C_FLAGS["origin"])
     for f in container.GetFiles():
         hashes = f.GetHashes()
         seg = 0
         name = f.GetPath()
         if complete:
             print "Global hash: %s" % hashes[-1].encode("hex")
+        else:
+            print "(converted .phash file, global hash missing)"
         hashes = hashes[:-1]
-        print "\nHash                              File                         Segment"
+        cliout = "Hash".ljust(hashlen * 2) + "  File                         Segment"
+        print "\n%s" % cliout
         for h in hashes:
             if len(name) > 29:
                 val = "..." + name[-25:] + " "
@@ -539,7 +554,11 @@ def main():
         "show": Show,
         }
     op = calls[args.mode]
+    t1 = datetime.datetime.now()
     op(args)
+    dt = datetime.datetime.now() - t1
+    if DEBUG_BENCHMARK:
+        print "\nTime taken: %s" % dt
 
 
 if __name__ == "__main__":

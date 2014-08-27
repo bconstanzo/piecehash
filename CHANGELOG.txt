@@ -1,5 +1,12 @@
 Changelog:
 ==========
+
+Version 0.6.1:
+  * DEBUG_BENCHMARK for timings.
+  * Small fixes all around for code style consistency.
+  * This is a cleanup before 0.7, which will split the classes and CLI into separate files.
+  * SHA-1, SHA-256 and SHA-512 were tested, and everything apparently works.
+
 Version 0.6:
   * Convert mode works. Convert mode is aimed at taking the output of another Piecehash Capable
   Program (eg: Kornblum's dc3dd, md5deep, hashdeep, others?) and translate that into a PHash File.
@@ -49,7 +56,7 @@ Roadmap:
 ========
 
 Version 0.7:
-  * SHA-1, SHA-256 and SHA-512 hashes tested and supported.
+  * Split classes from CLI functions
 
 Version 0.7+ (undefined version number):
   * Log file for verbose details.

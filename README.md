@@ -23,7 +23,7 @@ while also bringing compatibility with the previous work.
 
 In particular, the file format avoids a lot of redundancy that appears in md5deep and hashdeep files
 -- that means the .phash files are smaller, a lot smaller, usually between 75 to 80% smaller than
-the raw md5deep file. Even if you compress an md5deep, the phash equivalent is usualy 20 to 20%
+the raw md5deep file. Even if you compress an md5deep, the phash equivalent is usualy 20 to 25%
 smaller. Also, in the eventual case that you get a smaller file compressing an md5deep file, you
 can still compress the .phash file.
 
