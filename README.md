@@ -14,9 +14,9 @@ Why?
 ====
 
 A friend, who is a forensic expert, had a problem with large disk image files. We came to the
-conclusion that a viable option was to calculate an MD5 hash every MB or so. With a little more
-thought, we defined a set of requirements, both for the program and for the file format that would
-store all that information.
+conclusion that a viable solution to his problem was to calculate an MD5 hash every MB or so. With a
+little more thought, we defined a set of requirements, both for the program and for the file format
+that would store all that information.
 
 Then we found out about Kornblum's and Harbour's work, and I set to implement the original idea,
 while also bringing compatibility with the previous work.
