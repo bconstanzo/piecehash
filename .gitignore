@@ -1,3 +1,7 @@
 *.phash
 *.pyc
 .idea*
+*.db
+*.jpg
+*.png
+md5deep*

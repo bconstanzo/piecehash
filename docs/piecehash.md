@@ -100,3 +100,6 @@ The data stored in a File Info Segment is as follows:
 hashes in this part, one hash for every segment and the Global Hash. If the PHash File is PHash
 Complete, the Global Hash has the MD5 (or corresponding algorithm) digest of the whole file. If it
 is not a PHash Complete file, its contents are ignored.
+
+###2.3 - Footer
+The footer of the file consists of the string "PHEND\x00".
