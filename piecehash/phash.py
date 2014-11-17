@@ -35,7 +35,7 @@ def ArgParse():
                         help="Input file(s).")
     parser.add_argument("-m",
                         dest="mode",
-                        choices=["hash", "compare", "convert", "show"],
+                        choices=["hash", "compare", "forcecompare", "convert", "show"],
                         default="hash",
                         help="Mode of operation.")
     parser.add_argument("-o",
@@ -91,6 +91,7 @@ def Compare(args):
     ifile = args.ifile[0]  # for the moment we'll work with the first element only, although it
     # could work with multiple PHash Containers at a time
     container = piecehash.PHashFile(ifile, 0, 0)
+    force_compare = args.mode == "forcecompare"
     # Responsibility of actually comparing hashes and showing results is left to this function.
     # An alternative implementation could show results on the go, I prefer it this way to produce
     # simpler code in the classes.
@@ -104,11 +105,14 @@ def Compare(args):
         val1, val2 = hashes1[-1], hashes2[-1]
         hashes1, hashes2 = hashes1[:-1], hashes2[:-1]
         #if False: # this is a replacement for the next line to test some cases.
-        if val1 == val2:
+        if val1 == val2 and not force_compare:
             print "match. %s: %s " % (algname, val1.encode("hex"))
         else:
             if complete:
-                print "no match, showing block results:"
+                if force_compare:
+                    print " - forced comparison:"
+                else:
+                    print "no match, showing block results:"
             else:
                 print "container misses a global hash, showing block results:"
             for t in zip(hashes1, hashes2):
@@ -123,6 +127,7 @@ def Compare(args):
                 print "\b%s" % ("+" * abs(lendiff))
             if lendiff > 0:
                 print "\b%s" % ("-" * lendiff)
+            print "\b"
     return True
 
 
@@ -223,6 +228,7 @@ def main():
     calls = {
         "hash": Hash,
         "compare": Compare,
+        "forcecompare": Compare,
         "convert": Convert,
         "show": Show,
         }
