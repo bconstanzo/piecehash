@@ -17,9 +17,9 @@
 import hashlib
 
 # A bit of version numbers...
-C_VER_MAJOR = 7
-C_VER_MINOR = 0
-C_VER_MICRO = 0
+C_VER_MAJOR = 0
+C_VER_MINOR = 7
+C_VER_MICRO = 1
 C_VER_BUILD = 41  # more like "working code version", since there's no build per se
 C_VERSTRING = "%d.%d.%d" % (C_VER_MAJOR, C_VER_MINOR, C_VER_MICRO)
 C_BUILDSTRING = C_VERSTRING + " build %d" % (C_VER_BUILD)
