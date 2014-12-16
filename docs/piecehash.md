@@ -55,6 +55,7 @@ the file. It has the following fields:
 which the hash digest is calculated.
 
 HashList:
+
 |Index|Algorithm|
 |-----|---------|
 |0    |MD5      |
@@ -87,6 +88,7 @@ A segment has the following structure of fields:
 |CRC-32        |4 bytes |CRC-32 of data, to verify file integrity.|
 
 Segment Type List:
+
 |Segment ID|Segment info     |
 |----------|-----------------|
 |SEG\x10   |File Info Segment|
