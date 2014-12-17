@@ -147,8 +147,9 @@ Intepreting the fields of the segment gives us the following information:
 
 * `53 45 47 10` is the Segment ID, indicating a File Info Segment.
 * `5d 00 00 00 00 00 00 00` is the segment length (id, length and CRC not included), 93 bytes.
-* Segment data is long and has to be correctly interpreted. We have a string with the file path
-(zero-terminated) and then the remaining bytes form the list of hashes, which is N / M entries long,
+* Segment data is long and has to be correctly interpreted. File Info Segments have a string with
+the file path (zero-terminated) and then the remaining bytes form the list of hashes, which is N / M
+entries long, where N is the number of remaining bytes and M the hash length in bytes:
 where N is the number of remaining bytes and M the hash length in bytes:
     * `70 69 65 63 65 68 61 73 68 2e 70 79 00` is the file path. It says "piecehash.py".
     * At this point we have 93 - 13 = 80 remaining bytes and MD5 is a 16 bytes-long hash. That means

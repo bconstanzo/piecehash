@@ -39,7 +39,7 @@ which provide the same functionality I was aiming for with p-hash (partial-hashe
 stands in the name, now for piecewise. Will do some work to provide compatibility with
 Kornblums implementation, and focus work more in the binary file format.
 
-* Note 2014-0713:
+* Note 2014-07-13:
 Name changed from "PHash" to "piecehash" to avoid confusion with pHash, and also recognize
 Nick Harbour's and Jesse Kornblum's previous work on this topic.
 There are still some references to PHash arround, but it should be clear enough by now.
